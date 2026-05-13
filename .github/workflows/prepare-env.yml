@@ -1,0 +1,134 @@
+name: Build OpenWrt Toolchain
+
+on:
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
+  # 明确定义种子配置文件变量
+  SEED_CONFIG: seed.config
+  # 引入 DIY 脚本变量
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build_toolchain:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Remove all docker images
+        run: |
+         images=$(docker images -q)
+         if [ -n "$images" ]; then
+           docker rmi $images
+         else
+           echo "No images to remove."
+         fi
+         
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+             # this might remove tools that are actually needed,
+             # if set to "true" but frees about 6 GB
+             tool-cache: true
+             # all of these default to true, but feel free to set to
+             # "false" if necessary for your workflow
+             android: true
+             dotnet: true
+             haskell: true
+             large-packages: true
+             swap-storage: true
+             
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialization environment
+        run: |
+          sudo -E apt update
+          sudo -E apt -y install build-essential clang flex gawk gettext git libncurses5-dev libssl-dev python3-setuptools swig wget zlib1g-dev
+          sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Clone source code
+        run: git clone $REPO_URL -b $REPO_BRANCH openwrt
+
+# --- 关键修正：执行 DIY-P1 以引入 helloworld 等 feeds ---
+      - name: Load Custom Feeds
+        run: |
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P1_SH
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ./scripts/feeds install -f libxcrypt
+
+      # --- 第一步：根据 seed.config 生成完整 .config 并导出变量 ---
+      - name: Generate Full Config & Export Env
+        id: parse_config
+        run: |
+          cd openwrt
+          [ -e ../seed.config ] && cp ../seed.config .config
+          make defconfig
+
+      # --- 第二步：尝试恢复缓存 ---
+      - name: Cache Toolchain & ccache
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir/toolchain-*
+            openwrt/staging_dir/host*
+            openwrt/staging_dir/target-*
+            ~/.ccache
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('seed.config') }}
+
+      # --- 第三步：核心编译（只有缓存失效才执行） ---
+      - name: Build Toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          cd openwrt
+          # 编译基础工具链
+          make toolchain/install -j$(nproc)
+
+      # --- 第四步：按需预编译（只有缓存失效 且 配置选中 才会执行） ---
+      - name: Pre-compile Heavy Requirements
+        run: |
+          cd openwrt    
+          # --- Shadowsocks-rust 检查与预编译 ---
+          # 只要配置中包含 shadowsocks-rust 关键字（无论核心包还是 Luci）
+          if grep -q "CONFIG_PACKAGE_shadowsocks-rust" .config; then
+            echo "检测到 Shadowsocks-rust 配置，开始预编译 Rust 环境..."
+            # 必须先编译 rust 宿主工具，改为单线程并输出详细日志，这样能看到具体的报错原因
+            make tools/rust/compile -j1 V=s || {
+              echo "Rust 编译失败，检查磁盘空间："
+              df -h
+              exit 1
+            }
+            # 预编译包主体，确保二进制文件进入 staging_dir
+            make package/shadowsocks-rust/compile -j$(nproc)
+          else
+            echo "未检测到 Shadowsocks-rust，跳过 Rust 预编译。"
+          fi
+          
+           # --- Sing-box / Go 检查与预编译 (进阶建议) ---
+           # 你的配置里选了很多 sing-box 功能，建议也在这里把 Go 环境存了
+          if grep -q "CONFIG_PACKAGE_sing-box" .config; then
+            echo "检测到 Sing-box 配置，开始预编译 Go 环境..."
+            make tools/go/compile -j$(nproc)
+            # 注意：sing-box 源码包名在 Makefile 中可能叫 sing-box
+            make package/sing-box/compile -j$(nproc)
+          fi
+
+
+#      - name: Pre-compile Xray
+#        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.parse_config.outputs.HAS_XRAY == 'true'
+#        run: |
+#          cd openwrt
+#          echo "Building Xray-core package..."
+#          make package/feeds/custom_repo/xray-core/compile -j$(nproc)
+
+      - name: Final Tools Install
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          cd openwrt
+          make tools/install -j$(nproc) || make tools/install -j1 V=s
