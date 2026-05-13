@@ -114,7 +114,7 @@ jobs:
            # 你的配置里选了很多 sing-box 功能，建议也在这里把 Go 环境存了
           if grep -q "CONFIG_PACKAGE_sing-box" .config; then
             echo "检测到 Sing-box 配置，开始预编译 Go 环境..."
-            make tools/go/compile -j$(nproc)
+            #make tools/go/compile -j$(nproc)
             # 注意：sing-box 源码包名在 Makefile 中可能叫 sing-box
             make package/sing-box/compile -j$(nproc)
           fi
