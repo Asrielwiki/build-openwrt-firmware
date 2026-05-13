@@ -99,11 +99,11 @@ jobs:
           if grep -q "CONFIG_PACKAGE_shadowsocks-rust" .config; then
             echo "检测到 Shadowsocks-rust 配置，开始预编译 Rust 环境..."
             # 必须先编译 rust 宿主工具，改为单线程并输出详细日志，这样能看到具体的报错原因
-            make tools/rust/compile -j1 V=s || {
-              echo "Rust 编译失败，检查磁盘空间："
-              df -h
-              exit 1
-            }
+            #make tools/rust/compile -j1 V=s || {
+              #echo "Rust 编译失败，检查磁盘空间："
+              #df -h
+              #exit 1
+            #}
             # 预编译包主体，确保二进制文件进入 staging_dir
             make package/shadowsocks-rust/compile -j$(nproc)
           else
