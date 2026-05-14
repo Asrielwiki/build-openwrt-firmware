@@ -1,4 +1,4 @@
-name: Build OpenWrt Toolchain - test1
+name: Build OpenWrt Toolchain - test2
 
 on:
   workflow_dispatch:
@@ -113,24 +113,31 @@ jobs:
               if [ -z "$SELECTED_PKGS" ]; then continue; fi
 
               for PKG in $SELECTED_PKGS; do
-                  echo ">>> 正在处理: $PKG"
-                  
-                  # 1. 拆解管道：先找 Makefile 路径。不使用 xargs 以防结果为空导致报错。
+              echo ">>> 正在处理: $PKG"
+
+                  # 1. 精准定位 Makefile (PKG_NAME 等于选中包名)
                   MAKEFILE_FILE=$(grep -rl "PKG_NAME:=$PKG" package feeds 2>/dev/null | head -n 1)
-                  
+
                   if [ -n "$MAKEFILE_FILE" ]; then
                       PKG_PATH=$(dirname "$MAKEFILE_FILE")
-                      echo ">>> 命中物理路径: $PKG_PATH"
-                      
-                      # 针对部分需要同步内核环境的包，执行预编译
-                      # 这里的 || true 极其重要：个别包（如 ss-libev）报错不会中断整个固件编译
-                      make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 预编译失败，跳过本次错误"
                   else
-                      # 2. 如果 Makefile 没搜到，尝试查找同名目录
+                      # 2. 如果精准定位失败，尝试查找文件夹名完全相符的 (目录匹配)
                       PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
-                      if [ -n "$PKG_PATH" ]; then
-                          make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 预编译失败"
+                  fi
+
+                  # 3. 执行编译 (删掉了那个不靠谱的模糊 find)
+                  if [ -n "$PKG_PATH" ]; then
+                      echo ">>> 命中路径: $PKG_PATH"
+                      
+                      # 针对重型插件确保内核环境
+                      if [[ "$PKG" =~ (sing-box|xray|shadowsocks|docker) ]]; then
+                          make target/compile -j$(nproc)
                       fi
+                      
+                      # 这里的 || true 非常关键，防止某个非核心插件报错导致整个 Workflow 崩溃
+                      make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 编译失败，跳过本次错误继续执行..."
+                  else
+                      echo ">>> [跳过] 在源码中找不到 $PKG 对应的路径。"
                   fi
               done
           done
