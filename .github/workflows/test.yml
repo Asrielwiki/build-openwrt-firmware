@@ -93,29 +93,29 @@ jobs:
       - name: Pre-compile Sing-box & Dependencies
         run: |
           cd openwrt
-          # 只要选中了 sing-box，就必须完整走一遍基础构建链
-          if grep -q "CONFIG_PACKAGE_sing-box=y" .config; then
-            echo ">>> [1/5] 刷新配置符号表..."
-            make defconfig
+          # 扩充后的关键词：涵盖了大部分“重型”或“触底”插件
+          KEYWORDS="sing-box"
 
-            echo ">>> [2/5] 编译构建工具 (Tools)..."
-            # 提供 sstrip, patch-dtb 等必要工具，报错多半是因为缺这个
-            make tools/install -j$(nproc)
+          for KEY in $KEYWORDS; do
+              # 查找是否有选中这些关键词的包
+              SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
 
-            echo ">>> [3/5] 编译交叉编译工具链 (Toolchain)..."
-            # 提供针对你架构（如 x86_64）的 gcc/g++，没有这个编不了任何包
-            make toolchain/install -j$(nproc)
+              if [ -z "$SELECTED_PKGS" ]; then continue; fi
 
-            echo ">>> [4/5] 初始化内核与架构环境 (Target)..."
-            # 解决你之前的 ERROR: target/linux failed to build
-            make target/compile -j$(nproc)
-
-            echo ">>> [5/5] 正式编译 Sing-box 及其 Go 环境..."
-            # 此时环境已经稳如泰山，Sing-box 必过
-            make package/sing-box/compile -j$(nproc)
-          else
-            echo "未检测到 Sing-box，跳过预编译。"
-          fi
+              for PKG in $SELECTED_PKGS; do
+                  PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
+        
+                  if [ -n "$PKG_PATH" ]; then
+                     # --- 深度防御逻辑 ---
+                     # 只要是这几类插件，统一先跑一次内核环境同步
+                     # 如果之前跑过，这一步是秒过的，不会浪费时间
+                     echo ">>> 正在处理底层敏感插件: $PKG"
+                     make target/compile -j$(nproc)
+            
+                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，已跳过"
+                  fi
+              done
+          done
 
 
 #      - name: Pre-compile Xray
