@@ -98,33 +98,32 @@ jobs:
           make toolchain/install -j$(nproc)
 
       # --- 第四步：按需预编译（只有缓存失效 且 配置选中 才会执行） ---
-      - name: Pre-compile Heavy Requirements
+      - name: Pre-compile Sing-box & Dependencies
         run: |
-          cd openwrt    
-          # --- Shadowsocks-rust 检查与预编译 ---
-          # 只要配置中包含 shadowsocks-rust 关键字（无论核心包还是 Luci）
-          if grep -q "CONFIG_PACKAGE_shadowsocks-rust" .config; then
-            echo "检测到 Shadowsocks-rust 配置，开始预编译 Rust 环境..."
-            # 必须先编译 rust 宿主工具，改为单线程并输出详细日志，这样能看到具体的报错原因
-            #make tools/rust/compile -j1 V=s || {
-              #echo "Rust 编译失败，检查磁盘空间："
-              #df -h
-              #exit 1
-            #}
-            # 预编译包主体，确保二进制文件进入 staging_dir
-            make package/shadowsocks-rust/compile -j$(nproc)
-          else
-            echo "未检测到 Shadowsocks-rust，跳过 Rust 预编译。"
-          fi
-          
-           # --- Sing-box / Go 检查与预编译 (进阶建议) ---
-           # 你的配置里选了很多 sing-box 功能，建议也在这里把 Go 环境存了
-          if grep -q "CONFIG_PACKAGE_sing-box" .config; then
-            echo "检测到 Sing-box 配置，开始预编译 Go 环境..."
-            make target/compile -j$(nproc)
-            # 注意：sing-box 源码包名在 Makefile 中可能叫 sing-box
-            make package/sing-box/compile -j$(nproc)
-          fi
+          cd openwrt
+          # 扩充后的关键词：涵盖了大部分“重型”或“触底”插件
+          KEYWORDS="shadowsocks sing-box xray docker wireguard samba tailscale"
+
+          for KEY in $KEYWORDS; do
+              # 查找是否有选中这些关键词的包
+              SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
+
+              if [ -z "$SELECTED_PKGS" ]; then continue; fi
+
+              for PKG in $SELECTED_PKGS; do
+                  PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
+        
+                  if [ -n "$PKG_PATH" ]; then
+                     # --- 深度防御逻辑 ---
+                     # 只要是这几类插件，统一先跑一次内核环境同步
+                     # 如果之前跑过，这一步是秒过的，不会浪费时间
+                     echo ">>> 正在处理底层敏感插件: $PKG"
+                     make target/compile -j$(nproc)
+            
+                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，已跳过"
+                  fi
+              done
+          done
 
 
 #      - name: Pre-compile Xray
