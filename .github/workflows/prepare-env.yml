@@ -105,31 +105,39 @@ jobs:
           KEYWORDS="shadowsocks sing-box xray docker wireguard samba tailscale"
 
           for KEY in $KEYWORDS; do
-              # 1. 找出所有包含关键词的选中包
+              # 1. 查找选中的包名
               SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
-
+      
               if [ -z "$SELECTED_PKGS" ]; then continue; fi
 
               for PKG in $SELECTED_PKGS; do
-                  # 2. 【核心改动】不再盲目找文件夹，而是去搜 Makefile 里的 PKG_NAME
-                  # 我们在 package 和 feeds 目录下搜索包含 "PKG_NAME:=$PKG" 的文件
-                  # 这样即便包叫 shadowsocks-rust-sslocal，也能精准定位到它的 Makefile 所在目录
-                  PKG_PATH=$(grep -rl "PKG_NAME:=$PKG" package feeds 2>/dev/null | head -n 1 | xargs dirname)
+                  echo ">>> 正在定位包: $PKG"
 
-                  # 3. 如果搜不到（有些包没定义 PKG_NAME），则退回到目录名搜索
-                  if [ -z "$PKG_PATH" ]; then
+                  # 2. 核心防御逻辑：先存入变量，不直接用管道
+                  # 寻找包含 PKG_NAME:=$PKG 的 Makefile 路径
+                  MAKEFILE_PATH=$(grep -rl "PKG_NAME:=$PKG" package feeds 2>/dev/null | head -n 1)
+
+                  # 3. 判断是否找到了路径
+                  if [ -n "$MAKEFILE_PATH" ]; then
+                      # 找到了 Makefile，才执行 dirname
+                      PKG_PATH=$(dirname "$MAKEFILE_PATH")
+                  else
+                      # 如果 Makefile 没搜到，尝试直接匹配目录名
                       PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
                   fi
 
+                  # 4. 执行编译
                   if [ -n "$PKG_PATH" ]; then
-                     echo ">>> 找到匹配: $PKG -> 源码路径: $PKG_PATH"
-                     make target/compile -j$(nproc)
-                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，跳过"
+                      echo ">>> 命中物理路径: $PKG_PATH"
+              
+                      # 仅针对重型依赖跑环境同步
+                      if [[ "$PKG" =~ (sing-box|xray|shadowsocks|docker) ]]; then
+                          make target/compile -j$(nproc)
+                      fi
+              
+                      make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 预编译失败，跳过。"
                   else
-                     echo ">>> 警告: 找不到 $PKG 的源码路径，尝试模糊搜索..."
-                     # 最后的保底：找包含关键词的目录
-                     PKG_PATH=$(find package feeds -name "*$KEY*" -type d -print -quit)
-                     [ -n "$PKG_PATH" ] && make "$PKG_PATH/compile" -j$(nproc)
+                     echo ">>> [跳过] 源码中未找到 $PKG，可能包名与目录名不符。"
                   fi
               done
           done
