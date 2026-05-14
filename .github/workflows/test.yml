@@ -87,7 +87,7 @@ jobs:
             openwrt/staging_dir/host*
             openwrt/staging_dir/target-*
             ~/.ccache
-          key: ${{ runner.os }}-toolchain-${{ hashFiles('seed.config') }}
+          key: ${{ runner.os }}-toolchain-v2-${{ hashFiles('seed.config') }}
 
       - name: Build Toolchain
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
