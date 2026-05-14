@@ -89,6 +89,13 @@ jobs:
             ~/.ccache
           key: ${{ runner.os }}-toolchain-${{ hashFiles('seed.config') }}
 
+      - name: Build Toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          cd openwrt
+          # 编译基础工具链
+          make toolchain/install -j$(nproc)
+
       # --- 第四步：按需预编译（只有缓存失效 且 配置选中 才会执行） ---
       - name: Pre-compile Sing-box & Dependencies
         run: |
