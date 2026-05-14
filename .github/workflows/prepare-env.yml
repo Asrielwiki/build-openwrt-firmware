@@ -101,26 +101,35 @@ jobs:
       - name: Pre-compile Sing-box & Dependencies
         run: |
           cd openwrt
-          # 扩充后的关键词：涵盖了大部分“重型”或“触底”插件
+          # 关键词依然保持最通用的
           KEYWORDS="shadowsocks sing-box xray docker wireguard samba tailscale"
 
           for KEY in $KEYWORDS; do
-              # 查找是否有选中这些关键词的包
+              # 1. 找出所有包含关键词的选中包
               SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
 
               if [ -z "$SELECTED_PKGS" ]; then continue; fi
 
               for PKG in $SELECTED_PKGS; do
-                  PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
-        
+                  # 2. 【核心改动】不再盲目找文件夹，而是去搜 Makefile 里的 PKG_NAME
+                  # 我们在 package 和 feeds 目录下搜索包含 "PKG_NAME:=$PKG" 的文件
+                  # 这样即便包叫 shadowsocks-rust-sslocal，也能精准定位到它的 Makefile 所在目录
+                  PKG_PATH=$(grep -rl "PKG_NAME:=$PKG" package feeds 2>/dev/null | head -n 1 | xargs dirname)
+
+                  # 3. 如果搜不到（有些包没定义 PKG_NAME），则退回到目录名搜索
+                  if [ -z "$PKG_PATH" ]; then
+                      PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
+                  fi
+
                   if [ -n "$PKG_PATH" ]; then
-                     # --- 深度防御逻辑 ---
-                     # 只要是这几类插件，统一先跑一次内核环境同步
-                     # 如果之前跑过，这一步是秒过的，不会浪费时间
-                     echo ">>> 正在处理底层敏感插件: $PKG"
+                     echo ">>> 找到匹配: $PKG -> 源码路径: $PKG_PATH"
                      make target/compile -j$(nproc)
-            
-                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，已跳过"
+                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，跳过"
+                  else
+                     echo ">>> 警告: 找不到 $PKG 的源码路径，尝试模糊搜索..."
+                     # 最后的保底：找包含关键词的目录
+                     PKG_PATH=$(find package feeds -name "*$KEY*" -type d -print -quit)
+                     [ -n "$PKG_PATH" ] && make "$PKG_PATH/compile" -j$(nproc)
                   fi
               done
           done
