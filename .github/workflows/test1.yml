@@ -1,4 +1,4 @@
-name: Build OpenWrt Toolchain - test
+name: Build OpenWrt Toolchain - test1
 
 on:
   workflow_dispatch:
@@ -95,35 +95,6 @@ jobs:
           cd openwrt
           # 编译基础工具链
           make toolchain/install -j$(nproc)
-
-      # --- 第四步：按需预编译（只有缓存失效 且 配置选中 才会执行） ---
-      - name: Pre-compile Sing-box & Dependencies
-        run: |
-          cd openwrt
-          # 扩充后的关键词：涵盖了大部分“重型”或“触底”插件
-          KEYWORDS="sing-box"
-
-          for KEY in $KEYWORDS; do
-              # 查找是否有选中这些关键词的包
-              SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
-
-              if [ -z "$SELECTED_PKGS" ]; then continue; fi
-
-              for PKG in $SELECTED_PKGS; do
-                  PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
-        
-                  if [ -n "$PKG_PATH" ]; then
-                     # --- 深度防御逻辑 ---
-                     # 只要是这几类插件，统一先跑一次内核环境同步
-                     # 如果之前跑过，这一步是秒过的，不会浪费时间
-                     echo ">>> 正在处理底层敏感插件: $PKG"
-                     make target/compile -j$(nproc)
-            
-                     make "$PKG_PATH/compile" -j$(nproc) || echo "$PKG 编译失败，已跳过"
-                  fi
-              done
-          done
-
 
 #      - name: Pre-compile Xray
 #        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.parse_config.outputs.HAS_XRAY == 'true'
