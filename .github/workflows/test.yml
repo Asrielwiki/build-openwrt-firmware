@@ -90,16 +90,31 @@ jobs:
           key: ${{ runner.os }}-toolchain-${{ hashFiles('seed.config') }}
 
       # --- 第四步：按需预编译（只有缓存失效 且 配置选中 才会执行） ---
-      - name: Pre-compile Heavy Requirements
+      - name: Pre-compile Sing-box & Dependencies
         run: |
-          cd openwrt    
-          # --- Sing-box / Go 检查与预编译 (进阶建议) ---
-          # 你的配置里选了很多 sing-box 功能，建议也在这里把 Go 环境存了
-          if grep -q "CONFIG_PACKAGE_sing-box" .config; then
-            echo "检测到 Sing-box 配置，开始预编译 Go 环境..."
+          cd openwrt
+          # 只要选中了 sing-box，就必须完整走一遍基础构建链
+          if grep -q "CONFIG_PACKAGE_sing-box=y" .config; then
+            echo ">>> [1/5] 刷新配置符号表..."
+            make defconfig
+
+            echo ">>> [2/5] 编译构建工具 (Tools)..."
+            # 提供 sstrip, patch-dtb 等必要工具，报错多半是因为缺这个
+            make tools/install -j$(nproc)
+
+            echo ">>> [3/5] 编译交叉编译工具链 (Toolchain)..."
+            # 提供针对你架构（如 x86_64）的 gcc/g++，没有这个编不了任何包
+            make toolchain/install -j$(nproc)
+
+            echo ">>> [4/5] 初始化内核与架构环境 (Target)..."
+            # 解决你之前的 ERROR: target/linux failed to build
             make target/compile -j$(nproc)
-            # 注意：sing-box 源码包名在 Makefile 中可能叫 sing-box
+
+            echo ">>> [5/5] 正式编译 Sing-box 及其 Go 环境..."
+            # 此时环境已经稳如泰山，Sing-box 必过
             make package/sing-box/compile -j$(nproc)
+          else
+            echo "未检测到 Sing-box，跳过预编译。"
           fi
 
 
