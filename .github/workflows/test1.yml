@@ -108,7 +108,7 @@ jobs:
           # 注意：先通过 find 确定路径，防止不同源码仓库路径不一致
           echo ">>> 正在执行 Rust 宿主编译器编译..."
           # 这种写法是告诉 OpenWrt：我要编译 rust 的 host 工具，不管谁用它。
-          make package/feeds/packages/lang/rust/host/compile -j1
+          make package/feeds/packages/lang/rust/host/compile -j1 V=s
 
           echo ">>> 正在填补核心链接库 (libc/libatomic)..."
           # 预编译基础库，解决 90% 的动态链接报错
