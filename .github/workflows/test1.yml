@@ -107,8 +107,18 @@ jobs:
           # 强制执行 Rust 宿主编译器编译
           # 注意：先通过 find 确定路径，防止不同源码仓库路径不一致
           echo ">>> 正在执行 Rust 宿主编译器编译..."
-          # 这种写法是告诉 OpenWrt：我要编译 rust 的 host 工具，不管谁用它。
-          make package/feeds/packages/lang/rust/host/compile -j1 V=s
+          # 我们找包含 "lang/rust" 且有 Makefile 的目录
+          RUST_DIR=$(find package/feeds/ -name "Makefile" | grep "lang/rust/Makefile" | sed 's/Makefile//' | head -n 1)
+
+          if [ -z "$RUST_DIR" ]; then
+              echo "致命错误：在所有 feed 中都找不到 Rust 源码！"
+              # 尝试直接点名 shadowsocks-rust，让它自动拉取依赖
+              make package/feeds/small/shadowsocks-rust/host/compile -j1 V=s || echo "尝试 ss-rust 引导失败"
+          else
+              echo "找到 Rust 路径: $RUST_DIR"
+              # 执行动态找到的路径
+              make ${RUST_DIR}host/compile -j1 V=s
+          fi
 
           echo ">>> 正在填补核心链接库 (libc/libatomic)..."
           # 预编译基础库，解决 90% 的动态链接报错
