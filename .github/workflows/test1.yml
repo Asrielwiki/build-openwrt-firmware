@@ -84,27 +84,48 @@ jobs:
         with:
           path: |
             openwrt/staging_dir
-            openwrt/build_dir/host   # <--- 极其重要：存放编译过程标记和宿主工具中间件
-            openwrt/build_dir/toolchain-* # <--- 存放交叉编译器编译过程
-            # ~/.ccache # 如果你开启了 ccache，保留它没问题
-          key: ${{ runner.os }}-toolchain-testv1
+            openwrt/build_dir/host
+            openwrt/build_dir/toolchain-*
+            openwrt/build_dir/target-*
+            openwrt/dl
+            ~/.ccache
+          key: ${{ runner.os }}-toolchain-testv2
 
       - name: Build Toolchain
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           cd openwrt
           # 编译基础工具链
+          echo ">>> 正在执行编译基础工具链..."
+          make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-#      - name: Pre-compile Xray
-#        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.parse_config.outputs.HAS_XRAY == 'true'
-#        run: |
-#          cd openwrt
-#          echo "Building Xray-core package..."
-#          make package/feeds/custom_repo/xray-core/compile -j$(nproc)
+          # 强制执行 Go 宿主编译器编译
+          echo ">>> 正在执行 Go 宿主编译器编译..."
+          make package/feeds/packages/golang/host/compile V=s -j$(nproc)
 
-      - name: Final Tools Install
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: |
-          cd openwrt
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
+          # 强制执行 Rust 宿主编译器编译
+          # 注意：先通过 find 确定路径，防止不同源码仓库路径不一致
+          echo ">>> 正在执行 Rust 宿主编译器编译..."
+          RUST_HOST_PATH=$(find package/feeds -name "rust" -type d | head -n 1)
+          make ${RUST_HOST_PATH}/host/compile V=s -j$(nproc)
+
+          echo ">>> 正在填补核心链接库 (libc/libatomic)..."
+          # 预编译基础库，解决 90% 的动态链接报错
+          make package/libs/toolchain/compile -j$(nproc)
+          make package/libs/libatomic/compile -j$(nproc)
+
+          echo ">>> ----------------------------------------------------"
+          echo ">>> [环境审计] 最终地基完整性检查报告："
+          
+          # 检查 Host 工具
+          [ -f staging_dir/host/bin/go ] && echo "✅ Go 编译器: 就绪" || echo "❌ Go 编译器: 缺失"
+          [ -f staging_dir/host/bin/cargo ] && echo "✅ Rust 编译器: 就绪" || echo "❌ Rust 编译器: 缺失"
+          
+          # 检查 关键库中间件
+          [ -d build_dir/target-*/toolchain ] && echo "✅ Libc 中间件: 已生成" || echo "❌ Libc 中间件: 缺失"
+          [ -d build_dir/target-*/libatomic ] && echo "✅ Libatomic 中间件: 已生成" || echo "❌ Libatomic 中间件: 缺失"
+          
+          # 检查 内核环境
+          [ -d build_dir/target-*/linux-x86_64/linux-* ] && echo "✅ 内核头文件: 已对齐" || echo "❌ 内核头文件: 缺失"
+          echo ">>> ----------------------------------------------------"
