@@ -92,44 +92,48 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-toolchain-v2-
 
-      - name: Universal Plugin Pre-compile (Safety Strategy)
+      - name: Universal Plugin Pre-compile (Rust & Go Optimized)
         run: |
           cd openwrt
-          # 覆盖常见的重型插件关键词
+          
+          # 1. 必须运行一次：确保内核头文件和核心工具链对齐
+          # 只要缓存恢复了，这一步会非常快（检查型编译）
+          echo ">>> 同步内核环境与编译工具..."
+          make target/compile -j$(nproc)
+          
           KEYWORDS="shadowsocks sing-box xray docker wireguard samba tailscale"
           
           for KEY in $KEYWORDS; do
-              # 提取选中的包名
+              # 找出所有开启的 CONFIG
               SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
-              
               if [ -z "$SELECTED_PKGS" ]; then continue; fi
 
               for PKG in $SELECTED_PKGS; do
-              echo ">>> 正在处理: $PKG"
-
-                  # 1. 精准定位 Makefile (PKG_NAME 等于选中包名)
-                  MAKEFILE_FILE=$(grep -rl "PKG_NAME:=$PKG" package feeds 2>/dev/null | head -n 1)
-
+                  echo ">>> 正在分析包: $PKG"
+                  
+                  # --- 核心改进：处理 Rust/Go 的子包命名习惯 ---
+                  # 去掉常见的后缀，尝试定位真实的主 Makefile 目录
+                  BASE_NAME=$(echo "$PKG" | sed 's/-sslocal//; s/-ssserver//; s/-redir//; s/-ss-local//; s/-ss-redir//')
+                  
+                  # 尝试通过 PKG_NAME 变量精准查找
+                  MAKEFILE_FILE=$(grep -rlE "PKG_NAME:=($PKG|$BASE_NAME)" package feeds 2>/dev/null | head -n 1)
+                  
                   if [ -n "$MAKEFILE_FILE" ]; then
                       PKG_PATH=$(dirname "$MAKEFILE_FILE")
-                  else
-                      # 2. 如果精准定位失败，尝试查找文件夹名完全相符的 (目录匹配)
-                      PKG_PATH=$(find package feeds -name "$PKG" -type d -print -quit)
-                  fi
-
-                  # 3. 执行编译 (删掉了那个不靠谱的模糊 find)
-                  if [ -n "$PKG_PATH" ]; then
-                      echo ">>> 命中路径: $PKG_PATH"
+                      echo ">>> 精准命中路径: $PKG_PATH"
                       
-                      # 针对重型插件确保内核环境
-                      if [[ "$PKG" =~ (sing-box|xray|shadowsocks|docker) ]]; then
-                          make target/compile -j$(nproc)
+                      # 执行编译。如果这个包是 Rust 写的，它会自动触发编译系统的 cargo 流程
+                      # 我们在这里加上日志 V=s 方便你在报错时看到具体是 Cargo 还是 GCC 的问题
+                      make "$PKG_PATH/compile" -j$(nproc) || make "$PKG_PATH/compile" -j1 V=s || echo "!!! $PKG 编译彻底失败"
+                  else
+                      # 最后的保底：尝试目录搜索
+                      PKG_PATH=$(find package feeds -name "$BASE_NAME" -type d -print -quit)
+                      if [ -n "$PKG_PATH" ]; then
+                          echo ">>> 目录匹配命中: $PKG_PATH"
+                          make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 编译失败"
+                      else
+                          echo ">>> [警告] 依旧无法找到 $PKG 的 Makefile 来源"
                       fi
-                      
-                      # 这里的 || true 非常关键，防止某个非核心插件报错导致整个 Workflow 崩溃
-                      make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 编译失败，跳过本次错误继续执行..."
-                  else
-                      echo ">>> [跳过] 在源码中找不到 $PKG 对应的路径。"
                   fi
               done
           done
