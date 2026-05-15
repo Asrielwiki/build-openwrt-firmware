@@ -84,109 +84,59 @@ jobs:
         with:
           path: |
             openwrt/staging_dir
-            openwrt/build_dir/host   # <--- 极其重要：存放编译过程标记和宿主工具中间件
-            openwrt/build_dir/toolchain-* # <--- 存放交叉编译器编译过程
-            # ~/.ccache # 如果你开启了 ccache，保留它没问题
-          # 【注意】这里的 Key 必须和你 toolchain.yml 中的完全一致
-          key: ${{ runner.os }}-toolchain-testv1
+            openwrt/build_dir/host
+            openwrt/build_dir/toolchain-*
+            openwrt/build_dir/target-*
+            openwrt/dl
+            ~/.ccache
+          key: ${{ runner.os }}-toolchain-testv2
           restore-keys: |
-            ${{ runner.os }}-toolchain-testv1
+            ${{ runner.os }}-toolchain-testv2
 
-      - name: Revive Toolchain and Environment
+      - name: Prepare and Warm-up Environment
         run: |
           cd openwrt
-          echo ">>> [1/3] 正在对齐时间戳，防止触发重编..."
-          # 这一步能欺骗 make，让它以为这些文件是刚刚在本地生成的
-          find staging_dir build_dir/host -exec touch {} + 2>/dev/null || true
           
-          echo ">>> [2/3] 正在修复潜在的软链接断裂..."
-          # 针对交叉编译器的 bin 目录进行一次简单的软链接自检
-          # 有时 tar 会把绝对路径链接搞挂，这里可以强制让 feeds 重连一部分
+          echo ">>> [1/5] 唤醒地基：对齐时间戳..."
+          # 必须最先执行，防止接下来的 make defconfig 触发重编
+          find staging_dir build_dir/host build_dir/toolchain-* -exec touch {} + 2>/dev/null || true
+          
+          echo ">>> [2/5] 修复链接：同步 Feeds 索引..."
+          # 使用 -i 锁定版本，install -a 重建 package/feeds/ 下的软链接
           ./scripts/feeds update -i
           ./scripts/feeds install -a
           
-          echo ">>> [3/3] 重新生成符号索引..."
-          # 必须执行一次 defconfig，确保 .config 与恢复的工具链状态对齐
+          echo ">>> [3/5] 同步配置：执行 defconfig..."
           [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
           make defconfig
-      - name: Verify Toolchain Health
-        run: |
-          cd openwrt
-          # 寻找交叉编译器二进制文件，尝试运行 --version
-          COMPILER=$(find staging_dir/toolchain-* -name "*gcc" -type f | head -n 1)
-          if [ -z "$COMPILER" ] || ! $COMPILER --version; then
-            echo "❌ 错误：工具链缓存恢复失败或编译器无法运行！"
-            exit 1
-          else
-            echo "✅ 工具链状态良好: $($COMPILER --version | head -n 1)"
-          fi
           
-      - name: Universal Plugin Pre-compile (Rust & Go Optimized)
-        run: |
-          cd openwrt
+          echo ">>> [4/5] 填补缝隙：核心库预编译..."
+          # 确保 libc 和 libatomic 存在，这是后面编 Rust/Go 插件的前提
+          make package/libs/toolchain/compile -j$(nproc)
+          make package/libs/libatomic/compile -j$(nproc)
           
-          # 1. 必须运行一次：确保内核头文件和核心工具链对齐
-          # 只要缓存恢复了，这一步会非常快（检查型编译）
-          echo ">>> 同步内核环境与编译工具..."
-          make target/compile -j$(nproc)
-          
-          KEYWORDS="shadowsocks sing-box xray docker wireguard samba tailscale"
-          
-          for KEY in $KEYWORDS; do
-              # 找出所有开启的 CONFIG
-              SELECTED_PKGS=$(grep "^CONFIG_PACKAGE_.*$KEY.*=y" .config | cut -d'=' -f1 | sed 's/CONFIG_PACKAGE_//')
-              if [ -z "$SELECTED_PKGS" ]; then continue; fi
-
-              for PKG in $SELECTED_PKGS; do
-                  echo ">>> 正在分析包: $PKG"
-                  
-                  # --- 核心改进：处理 Rust/Go 的子包命名习惯 ---
-                  # 去掉常见的后缀，尝试定位真实的主 Makefile 目录
-                  BASE_NAME=$(echo "$PKG" | sed 's/-sslocal//; s/-ssserver//; s/-redir//; s/-ss-local//; s/-ss-redir//')
-                  
-                  # 尝试通过 PKG_NAME 变量精准查找
-                  MAKEFILE_FILE=$(grep -rlE "PKG_NAME:=($PKG|$BASE_NAME)" package feeds 2>/dev/null | head -n 1)
-                  
-                  if [ -n "$MAKEFILE_FILE" ]; then
-                      PKG_PATH=$(dirname "$MAKEFILE_FILE")
-                      echo ">>> 精准命中路径: $PKG_PATH"
-                      
-                      # 执行编译。如果这个包是 Rust 写的，它会自动触发编译系统的 cargo 流程
-                      # 我们在这里加上日志 V=s 方便你在报错时看到具体是 Cargo 还是 GCC 的问题
-                      make "$PKG_PATH/compile" -j$(nproc) || make "$PKG_PATH/compile" -j1 V=s || echo "!!! $PKG 编译彻底失败"
-                  else
-                      # 最后的保底：尝试目录搜索
-                      PKG_PATH=$(find package feeds -name "$BASE_NAME" -type d -print -quit)
-                      if [ -n "$PKG_PATH" ]; then
-                          echo ">>> 目录匹配命中: $PKG_PATH"
-                          make "$PKG_PATH/compile" -j$(nproc) || echo "!!! $PKG 编译失败"
-                      else
-                          echo ">>> [警告] 依旧无法找到 $PKG 的 Makefile 来源"
-                      fi
-                  fi
-              done
+          echo ">>> [5/5] 暴力强攻：预编译重型插件..."
+          TARGETS="shadowsocks-rust sing-box xray-core tailscale luci-app-passwall"
+          for T in $TARGETS; do
+            # 获取插件所在的相对路径
+            PKG_PATH=$(./scripts/feeds list -n | grep -w "$T" | head -n 1)
+            if [ -n "$PKG_PATH" ]; then
+              echo ">>> 正在编译: $T (路径: $PKG_PATH)"
+              # 第一次尝试多线程，失败则单线程输出详细日志
+              make package/$PKG_PATH/compile -j$(nproc) || make package/$PKG_PATH/compile -j1 V=s || echo "!!! $T 编译失败"
+            else
+              echo ">>> [警告] 跳过 $T: 在 feeds 中未找到"
+            fi
           done
 
-      - name: Final Tools Install
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: |
-          cd openwrt
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
-
-# --- 第一步：整理需要缓存的文件 (可选) ---
-      # 如果你想缓存编译好的固件 bin 目录，可以根据需要调整路径
-      - name: Prepare Bin for Cache
-        run: |
-          # 这一步不是必须的，但如果你想给 v3 瘦身，可以把无用的临时文件删掉
-          echo "准备保存 v3 缓存..."
-
-      # --- 第二步：保存为 v3 缓存 ---
       - name: Save Firmware Cache v3
         uses: actions/cache/save@v4
         with:
           path: |
-            openwrt/bin
             openwrt/staging_dir
+            openwrt/build_dir/host
+            openwrt/build_dir/toolchain-*
+            openwrt/build_dir/target-*
+            openwrt/dl
             ~/.ccache
-          # 给它起个新名字 v3，并加上 hash 保证唯一性
           key: ${{ runner.os }}-pre-compile-v1-${{ github.run_id }}
