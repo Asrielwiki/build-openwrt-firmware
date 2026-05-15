@@ -1,0 +1,154 @@
+name: Build OpenWrt Toolchain - test2
+
+on:
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
+  # 明确定义种子配置文件变量
+  SEED_CONFIG: seed.config
+  # 引入 DIY 脚本变量
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build_toolchain:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Remove all docker images
+        run: |
+         images=$(docker images -q)
+         if [ -n "$images" ]; then
+           docker rmi $images
+         else
+           echo "No images to remove."
+         fi
+         
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+             # this might remove tools that are actually needed,
+             # if set to "true" but frees about 6 GB
+             tool-cache: true
+             # all of these default to true, but feel free to set to
+             # "false" if necessary for your workflow
+             android: true
+             dotnet: true
+             haskell: true
+             large-packages: true
+             swap-storage: true
+             
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialization environment
+        run: |
+          sudo -E apt update
+          sudo apt full-upgrade -y
+          sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
+          genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
+          libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
+          libreadline-dev libssl-dev libtool llvm lrzsz libnsl-dev ninja-build p7zip p7zip-full patch pkgconf \
+          python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion \
+          swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Clone source code
+        run: git clone $REPO_URL -b $REPO_BRANCH openwrt
+
+# --- 关键修正：执行 DIY-P1 以引入 helloworld 等 feeds ---
+      - name: Load Custom Feeds
+        run: |
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P1_SH
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ./scripts/feeds install -f libxcrypt
+
+      # --- 第一步：根据 seed.config 生成完整 .config 并导出变量 ---
+      - name: Generate Full Config & Export Env
+        id: parse_config
+        run: |
+          cd openwrt
+          [ -e ../seed.config ] && cp ../seed.config .config
+          make defconfig
+
+      # --- 核心步骤：恢复 Toolchain 缓存 ---
+      - name: Restore Toolchain Cache
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+            openwrt/build_dir/toolchain-*
+            openwrt/build_dir/target-*
+            openwrt/dl
+            ~/.ccache
+          key: ${{ runner.os }}-toolchain-test2
+          restore-keys: |
+            ${{ runner.os }}-toolchain-test2
+
+      - name: Prepare and Warm-up Environment
+        run: |
+          cd openwrt
+          
+          echo ">>> [1/3] 唤醒地基：对齐时间戳..."
+          # 必须最先执行，防止接下来的 make defconfig 触发重编
+          find staging_dir build_dir/host build_dir/toolchain-* -exec touch {} + 2>/dev/null || true
+          
+          echo ">>> [2/3] 修复链接：同步 Feeds 索引..."
+          # 使用 -i 锁定版本，install -a 重建 package/feeds/ 下的软链接
+          ./scripts/feeds update -i
+          ./scripts/feeds install -a
+          
+          echo ">>> [3/3] 同步配置：执行 defconfig..."
+          [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
+          make defconfig
+          
+        - name: Compile Firmware
+        run: |
+            cd openwrt
+            echo -e "$(nproc) thread compile"
+            make -j$(nproc) || make -j1 V=s
+            echo "======================="
+            echo "Space usage:"
+            echo "======================="
+            df -h
+            echo "======================="
+            du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
+            du -h --max-depth=1 ./build_dir
+            du -h --max-depth=1 ./bin
+            echo "status=success" >> $GITHUB_OUTPUT
+            grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+            [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+            echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+            
+        - name: Upload bin directory
+        uses: actions/upload-artifact@v4
+        if: env.UPLOAD_BIN_DIR == 'true'
+        with:
+            name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+            path: openwrt/bin
+
+        - name: Organize Firmware
+        run: |
+            cd openwrt/bin/targets/*/*
+            rm -rf packages
+            echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+        - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        if: env.UPLOAD_FIRMWARE == 'true'
+        with:
+            name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+            path: ${{ env.FIRMWARE }}
+            retention-days: 3
+
+          
+
+
