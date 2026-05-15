@@ -83,11 +83,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            openwrt/staging_dir/toolchain-*
-            openwrt/staging_dir/host*
-            openwrt/staging_dir/target-*
-            ~/.ccache
-          key: ${{ runner.os }}-toolchain-v2-${{ hashFiles('seed.config') }}
+            openwrt/staging_dir
+            openwrt/build_dir/host   # <--- 极其重要：存放编译过程标记和宿主工具中间件
+            openwrt/build_dir/toolchain-* # <--- 存放交叉编译器编译过程
+            # ~/.ccache # 如果你开启了 ccache，保留它没问题
+          key: ${{ runner.os }}-toolchain-testv1
 
       - name: Build Toolchain
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
