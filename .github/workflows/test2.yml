@@ -109,7 +109,18 @@ jobs:
           # 必须执行一次 defconfig，确保 .config 与恢复的工具链状态对齐
           [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
           make defconfig
-
+      - name: Verify Toolchain Health
+        run: |
+          cd openwrt
+          # 寻找交叉编译器二进制文件，尝试运行 --version
+          COMPILER=$(find staging_dir/toolchain-* -name "*gcc" -type f | head -n 1)
+          if [ -z "$COMPILER" ] || ! $COMPILER --version; then
+            echo "❌ 错误：工具链缓存恢复失败或编译器无法运行！"
+            exit 1
+          else
+            echo "✅ 工具链状态良好: $($COMPILER --version | head -n 1)"
+          fi
+          
       - name: Universal Plugin Pre-compile (Rust & Go Optimized)
         run: |
           cd openwrt
