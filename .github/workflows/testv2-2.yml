@@ -1,4 +1,4 @@
-name: Build OpenWrt Toolchain - test2
+name: Build OpenWrt Toolchain - testv2-2
 
 on:
   workflow_dispatch:
@@ -109,7 +109,7 @@ jobs:
           echo ">>> [3/3] 同步配置：执行 defconfig..."
           [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
           make defconfig
-          
+
       - name: Compile Firmware
         run: |
           cd openwrt
