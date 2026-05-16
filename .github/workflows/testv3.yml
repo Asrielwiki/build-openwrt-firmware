@@ -97,7 +97,7 @@ jobs:
     - name: Load Custom Configuration
       run: |
           chmod +x $DIY_P1_SH
-          cd openwrt
+          cd $OPENWRT_PATH
           $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Install Feeds
