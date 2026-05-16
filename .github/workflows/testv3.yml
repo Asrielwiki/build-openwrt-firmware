@@ -1,4 +1,4 @@
-name: X86_64 OpenWrt - test
+name: X86_64 OpenWrt - test #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
 
 on:
   workflow_dispatch:
