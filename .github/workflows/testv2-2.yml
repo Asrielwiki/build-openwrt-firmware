@@ -1,4 +1,4 @@
-name: Build OpenWrt Toolchain - testv2-2
+name: Build OpenWrt Toolchain - testv2-2 #此编译yml文件能够完整编译全固件，编译耗时少，但对于完成编译磁盘空间有待Pro权益结束后验证
 
 on:
   workflow_dispatch:
