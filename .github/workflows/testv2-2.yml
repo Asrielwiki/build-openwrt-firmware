@@ -95,6 +95,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-toolchain-test2
 
+      - name: 恢复缓存后立即强制释放空间
+        run: |
+          # 1. 强行清理 GitHub Actions 下载缓存的临时归档目录（卸磨杀驴）
+          sudo rm -rf /home/runner/runners/*/externals/
+          sudo rm -rf /home/runner/.cache/*
+          
+          # 2. 清理 Linux 系统的 apt 缓存和各种无用日志
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          
+          # 3. 现场执行一次内存与磁盘缓存同步释放
+          sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches
+
       - name: Prepare and Warm-up Environment
         run: |
           cd openwrt
