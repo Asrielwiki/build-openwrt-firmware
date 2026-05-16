@@ -11,6 +11,8 @@ env:
   # 引入 DIY 脚本变量
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
+  UPLOAD_FIRMWARE: true
+  UPLOAD_BIN_DIR: false
   TZ: Asia/Shanghai
 
 jobs:
@@ -97,18 +99,38 @@ jobs:
         run: |
           cd openwrt
           
-          echo ">>> [1/3] 唤醒地基：对齐时间戳..."
+          echo ">>> [1/4] 唤醒地基：对齐时间戳..."
           # 必须最先执行，防止接下来的 make defconfig 触发重编
           find staging_dir build_dir/host build_dir/toolchain-* -exec touch {} + 2>/dev/null || true
           
-          echo ">>> [2/3] 修复链接：同步 Feeds 索引..."
+          echo ">>> [2/4] 修复链接：同步 Feeds 索引..."
           # 使用 -i 锁定版本，install -a 重建 package/feeds/ 下的软链接
           ./scripts/feeds update -i
           ./scripts/feeds install -a
           
-          echo ">>> [3/3] 同步配置：执行 defconfig..."
+          echo ">>> [3/4] 同步配置：执行 defconfig..."
           [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
           make defconfig
+
+          echo ">>> [4/4] 正在处理Toolchain 缓存..."
+          if [ -d "staging_dir" ]; then
+              echo ">>> 检测到 Toolchain 缓存，开始同步时间戳..."
+              
+              # 刷新所有编译完成的隐藏标记文件（.built_*）
+              find staging_dir/ -name ".built*" -exec touch {} + 2>/dev/null || true
+              find build_dir/ -name ".built*" -exec touch {} + 2>/dev/null || true
+              
+              # 刷新 OpenWrt 核心状态戳记（stamps 文件夹）
+              # 这些 stamps 是 OpenWrt 判断“这一步到底有没有做过”的绝对依据
+              [ -d "staging_dir/toolchain/stamp" ] && touch staging_dir/toolchain/stamp/* staging_dir/toolchain/stamp/.* 2>/dev/null || true
+              [ -d "staging_dir/host/stamp" ]      && touch staging_dir/host/stamp/* staging_dir/host/stamp/.* 2>/dev/null || true
+              [ -d "staging_dir/hostpkg/stamp" ]   && touch staging_dir/hostpkg/stamp/* staging_dir/hostpkg/stamp/.* 2>/dev/null || true
+              [ -d "build_dir/toolchain/stamp" ]   && touch build_dir/toolchain/stamp/* build_dir/toolchain/stamp/.* 2>/dev/null || true
+              
+              echo ">>> 时间戳欺骗完成！"
+          else
+              echo ">>> 警告：没有发现 staging_dir 缓存，将触发全量重编！"
+          fi
 
       - name: Compile Firmware
         run: |
@@ -128,18 +150,18 @@ jobs:
           [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
+      - name: Organize Firmware
+        run: |
+          cd openwrt/bin/targets/*/*
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
       - name: Upload bin directory
         uses: actions/upload-artifact@v4
         if: env.UPLOAD_BIN_DIR == 'true'
         with:
             name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
             path: openwrt/bin
-
-      - name: Organize Firmware
-        run: |
-          cd openwrt/bin/targets/*/*
-          rm -rf packages
-          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
