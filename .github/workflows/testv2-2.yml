@@ -76,14 +76,6 @@ jobs:
           ./scripts/feeds install -a
           ./scripts/feeds install -f libxcrypt
 
-      # --- 第一步：根据 seed.config 生成完整 .config 并导出变量 ---
-      - name: Generate Full Config & Export Env
-        id: parse_config
-        run: |
-          cd openwrt
-          [ -e ../seed.config ] && cp ../seed.config .config
-          make defconfig
-
       # --- 核心步骤：恢复 Toolchain 缓存 ---
       - name: Restore Toolchain Cache
         id: cache-restore
