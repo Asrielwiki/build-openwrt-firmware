@@ -1,9 +1,6 @@
 name: X86_64 OpenWrt - test
 
 on:
-  push:
-    branches:
-      - test1
   workflow_dispatch:
 
 env:
