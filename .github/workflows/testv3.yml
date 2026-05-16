@@ -86,11 +86,11 @@ jobs:
         DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
-    - name: Cache Toolchain
-      if: env.CACHE_TOOLCHAIN == 'true'
-      uses: stupidloud/cachewrtbuild@main
+    - name: Cache
+      uses: klever1988/cachewrtbuild@main
       with:
-        ccache: true
+        ccache: 'true'
+        mixkey: ${{ matrix.DEVICE }}
         prefix: ${{ github.workspace }}/openwrt
 
     - name: Load Custom Configuration
