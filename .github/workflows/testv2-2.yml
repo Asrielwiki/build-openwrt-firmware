@@ -122,7 +122,7 @@ jobs:
           [ -e $GITHUB_WORKSPACE/seed.config ] && cp $GITHUB_WORKSPACE/seed.config .config
           make defconfig
           # 强行把这个开关塞进 .config，编译引擎启动时会自动识别并生效
-          echo "CONFIG_CLEAN_IPKG=y" >> openwrt/.config
+          echo "CONFIG_CLEAN_IPKG=y" >> .config
 
           echo ">>> [4/4] 正在处理Toolchain 缓存..."
           if [ -d "staging_dir" ]; then
