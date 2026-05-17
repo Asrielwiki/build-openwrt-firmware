@@ -78,7 +78,7 @@ jobs:
       run: |
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
-        make defconfig > /dev/null 2>&1
+        make defconfig
         SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
         DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
@@ -90,21 +90,14 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: ${{ matrix.DEVICE }}
-        prefix: ${{ github.workspace }}/openwrt
+        mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+        prefix: ${{ env.OPENWRT_PATH }}
 
     - name: Load Custom Configuration
       run: |
           chmod +x $DIY_P1_SH
           cd $OPENWRT_PATH
           $GITHUB_WORKSPACE/$DIY_P1_SH
-
-    - name: Generate Full Config & Export Env
-      id: parse_config
-      run: |
-        cd $OPENWRT_PATH
-        [ -e ../seed.config ] && cp ../seed.config .config
-        make defconfig
 
     - name: Install Feeds
       run: |
