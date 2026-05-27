@@ -1,4 +1,4 @@
-name: OpenWrt k6.6 test #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
+name: OpenWrt 优化 #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
 
 on:
   workflow_dispatch:
@@ -85,13 +85,12 @@ jobs:
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        #./scripts/feeds install -f libxcrypt
 
     - name: Generate Variables
       run: |
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
-        # 替换源码里的版本号
-        sed -i 's/KERNEL_PATCHVER:=6.12/KERNEL_PATCHVER:=6.6/g' target/linux/x86/Makefile
         make defconfig
         SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
@@ -104,7 +103,7 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-kernel6.6-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+        mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
         prefix: ${{ env.OPENWRT_PATH }}
 
     - name: Download DL Package
