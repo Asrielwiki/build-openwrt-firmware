@@ -1,4 +1,4 @@
-name: OpenWrt 优化 #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
+name: OpenWrt optimize #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
 
 on:
   workflow_dispatch:
