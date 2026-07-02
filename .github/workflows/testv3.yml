@@ -84,7 +84,7 @@ jobs:
       run: |
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        ./scripts/feeds install -f -a
 
     - name: Generate Variables
       run: |
