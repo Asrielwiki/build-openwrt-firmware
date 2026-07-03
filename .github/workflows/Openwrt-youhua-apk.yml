@@ -118,22 +118,24 @@ jobs:
       run: |
         cd $OPENWRT_PATH
         mkdir -p files/etc/uci-defaults
-        # 1. 第一步：先只编译所有的软件包、内核和工具链（不触发最终的固件打包）
-        echo "==== Step 1: Compiling packages ===="
+
+        # 1. 优先单线程把内核架构和配置编译好（避开 pppox.ko missing 抢跑 Bug）
+        echo "==== Step 1: Secure Kernel Build ===="
+        make target/linux/compile -j1 V=s
+
+        # 2. 多线程编译所有上层软件包 (此时内核已经好了，绝对不会再报错)
+        echo "==== Step 2: Compiling packages ===="
         make package/compile -j$(nproc) || make package/compile -j1 V=s
 
-        # 2. 第二步：强行生成 APK 索引
-        echo "==== Step 2: Generating APK Index ===="
+        # 3. 强行生成 APK 模式所需的索引数据库
+        echo "==== Step 3: Generating APK Index ===="
         make package/index V=s
-
-        # 【核心避坑】把生成的索引手动同步到 staging_dir，防止打包脚本犯蠢找不到
-        echo "==== Syncing index to staging directory ===="
         mkdir -p staging_dir/packages/x86/
         cp -f bin/packages/x86_64/base/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
         cp -f bin/targets/x86/64/packages/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
 
-        # 3. 第三步：最后执行固件的打包和组装
-        echo "==== Step 3: Building target images ===="
+        # 4. 最后执行固件打包
+        echo "==== Step 4: Building target images ===="
         make target/compile -j$(nproc) || make target/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
