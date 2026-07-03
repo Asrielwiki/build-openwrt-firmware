@@ -1,4 +1,4 @@
-name: OpenWrt optimize #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
+name: OpenWrt optimize - apkmode #此编译yml文件可节省大量磁盘空间，但对于Pro权益过期后，实际的编译所耗时间有待验证
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede
   REPO_BRANCH: master
-  CONFIG_FILE: seed.config
+  CONFIG_FILE: apkmodeseed.config
   DIY_P1_SH: diy-part1.sh
   CLASH_KERNEL: amd64
   CACHE_TOOLCHAIN: true
@@ -118,8 +118,23 @@ jobs:
       run: |
         cd $OPENWRT_PATH
         mkdir -p files/etc/uci-defaults
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # 1. 第一步：先只编译所有的软件包、内核和工具链（不触发最终的固件打包）
+        echo "==== Step 1: Compiling packages ===="
+        make package/compile -j$(nproc) || make package/compile -j1 V=s
+
+        # 2. 第二步：强行生成 APK 索引
+        echo "==== Step 2: Generating APK Index ===="
+        make package/index V=s
+
+        # 【核心避坑】把生成的索引手动同步到 staging_dir，防止打包脚本犯蠢找不到
+        echo "==== Syncing index to staging directory ===="
+        mkdir -p staging_dir/packages/x86/
+        cp -f bin/packages/x86_64/base/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
+        cp -f bin/targets/x86/64/packages/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
+
+        # 3. 第三步：最后执行固件的打包和组装
+        echo "==== Step 3: Building target images ===="
+        make target/compile -j$(nproc) || make target/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
