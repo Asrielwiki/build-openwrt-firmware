@@ -18,7 +18,7 @@ echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.defau
 #echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
 
 # Modify default IP
-# sed -i 's/192.168.1.1/10.0.0.2/g' package/base-files/luci2/bin/config_generate
+sed -i 's/192.168.1.1/10.0.0.2/g' package/base-files/luci/bin/config_generate
 
 # 1. 彻底从配置文件中抹除
 #sed -i '/CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305/d' .config
