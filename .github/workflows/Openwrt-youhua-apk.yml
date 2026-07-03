@@ -160,34 +160,40 @@ jobs:
     # 🌟【时序与变量修正 3】利用 GITHUB_OUTPUT 彻底解决跨步骤路径传递丢失问题，改 mv 为 cp 留存底子
     - name: Organize Files
       id: organize
-      # 🌟 调整判断条件：只要前面核心编译过了，这里就强制执行收尾
       if: always() && (steps.compile.outcome == 'success' || steps.compile.outputs.status == 'success')
       run: |
         # 1. 进入固件产物核心目录
         cd $OPENWRT_PATH/bin/targets/*/*
         
-        # 2. 🛡️ 安全读取校验和（找不到也不崩溃）
+        # 2. 🛡️ 安全读取校验和
         cat sha256sums 2>/dev/null || echo "⚠️ 未找到 sha256sums，跳过打印"
         
         # 3. 备份编译配置
-        cp -f $OPENWRT_PATH/.config build.config
+        cp -f $OPENWRT_PATH/.config build.config 2>/dev/null || true
         
-        # 4. 📦 【核心修复】完美兼容 APK 模式，打包全量 APK 包
+        # 4. 📦 创建一个临时收集箱，用来确保所有固件和包都万无一失
         mkdir -p packages
-        # 同时捞取 targets 目录下和 bin/packages 下的所有 .apk 核心组件
-        cp -f *.apk packages/ 2>/dev/null || true
-        cp -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages/ || true
-        # 同时也保留对传统 .ipk 的兼容（以防你切回旧分支）
+        
+        # 5. 🔥【核心修复】全方位通杀固件和安装包
+        # 捞取当前目录下所有可能的固件文件（.bin, .img, .img.gz 等）以及包文件（.apk, .ipk）
+        cp -f *.bin *.img *.img.gz *.qcow2 *.manifest build.config packages/ 2>/dev/null || true
+        cp -f *.apk *.ipk packages/ 2>/dev/null || true
+        
+        # 捞取 bin/packages 下的所有第三方 APK/IPK 组件
+        cp -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages/ 2>/dev/null || true
         cp -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages/ 2>/dev/null || true
         
-        # 打包并清理临时目录
-        tar -zcf Packages.tar.gz packages
+        # 6. 将当前文件夹内的所有产物，以及收集箱，统一打包！
+        # 这样不管固件文件是在外面还是在里面，都会被绝对强制收纳进这个压缩包
+        tar -zcf Packages.tar.gz packages/*
+        
+        # 清理多余临时文件，但保留 Packages.tar.gz
         rm -rf packages feeds.buildinfo version.buildinfo
         
-        # 5. 🛠️ 安全提取内核版本号（加 || true 防止 manifest 不存在时卡死）
+        # 7. 🛠️ 安全提取内核版本号
         echo "KERNEL=$(cat *.manifest 2>/dev/null | grep ^kernel | cut -d- -f2 | tr -d ' ' || echo 'unknown')" >> $GITHUB_ENV
         
-        # 6. 🌟 完美的路径输出，确保下一步顺利识别
+        # 8. 🌟 输出路径
         echo "firmware_path=$PWD" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware To Artifact
