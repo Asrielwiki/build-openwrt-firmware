@@ -160,62 +160,38 @@ jobs:
     # 🌟【时序与变量修正 3】利用 GITHUB_OUTPUT 彻底解决跨步骤路径传递丢失问题，改 mv 为 cp 留存底子
     - name: Organize Files
       id: organize
-      if: always() && (steps.compile.outcome == 'success' || steps.compile.outputs.status == 'success')
+      if: steps.compile.outputs.status == 'success'
       run: |
-        # 1. 进入固件产物核心目录
         cd $OPENWRT_PATH/bin/targets/*/*
+        cat sha256sums
+        cp $OPENWRT_PATH/.config build.config
         
-        # 2. 🛡️ 安全读取校验和
-        cat sha256sums 2>/dev/null || echo "⚠️ 未找到 sha256sums，跳过打印"
-        
-        # 3. 备份编译配置
-        cp -f $OPENWRT_PATH/.config build.config 2>/dev/null || true
-        
-        # 4. 📦 创建一个临时收集箱，用来确保所有固件和包都万无一失
+        # 将 mv 改为 cp，防止冲掉前一步可能的 bin 目录打包
         mkdir -p packages
-        
-        # 5. 🔥【核心修复】全方位通杀固件和安装包
-        # 捞取当前目录下所有可能的固件文件（.bin, .img, .img.gz 等）以及包文件（.apk, .ipk）
-        cp -f *.bin *.img *.img.gz *.qcow2 *.manifest build.config packages/ 2>/dev/null || true
-        cp -f *.apk *.ipk packages/ 2>/dev/null || true
-        
-        # 捞取 bin/packages 下的所有第三方 APK/IPK 组件
-        cp -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages/ 2>/dev/null || true
-        cp -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages/ 2>/dev/null || true
-        
-        # 6. 将当前文件夹内的所有产物，以及收集箱，统一打包！
-        # 这样不管固件文件是在外面还是在里面，都会被绝对强制收纳进这个压缩包
-        tar -zcf Packages.tar.gz packages/*
-        
-        # 清理多余临时文件，但保留 Packages.tar.gz
+        cp -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages/ || true
+        tar -zcf Packages.tar.gz packages
         rm -rf packages feeds.buildinfo version.buildinfo
         
-        # 7. 🛠️ 安全提取内核版本号
-        echo "KERNEL=$(cat *.manifest 2>/dev/null | grep ^kernel | cut -d- -f2 | tr -d ' ' || echo 'unknown')" >> $GITHUB_ENV
-        
-        # 8. 🌟 输出路径
+        echo "KERNEL=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')" >> $GITHUB_ENV
+        # 🌟 改用 steps 输出，绝对不会在下一步丢失路径
         echo "firmware_path=$PWD" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware To Artifact
-      # 🌟 修复判断条件：与上一步 organize 的成功状态对齐，且确保不是被取消的
-      if: always() && (steps.organize.outcome == 'success' || steps.compile.outputs.status == 'success') && !cancelled()
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
-        # 🌟 修复路径：直接精准调用上一步 organize 吐出来的绝对路径
         path: ${{ steps.organize.outputs.firmware_path }}
 
     - name: Upload Firmware To Release
-      # 🌟 修复判断条件：只有在前一步整理文件成功，且你开启了 RELEASE 开关时才触发
-      if: always() && (steps.organize.outcome == 'success' || steps.compile.outputs.status == 'success') && env.FIRMWARE_RELEASE == 'true'
+      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
       uses: ncipollo/release-action@v1
       with:
         name: R${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
         allowUpdates: true
         tag: ${{ env.FIRMWARE_TAG }}
         token: ${{ secrets.GITHUB_TOKEN }}
-        # 🌟 修复硬编码路径：原本的 ${{ env.FIRMWARE_PATH }} 可能不准，直接改用我们整理好的 firmware_path
-        artifacts: ${{ steps.organize.outputs.firmware_path }}/*
+        artifacts: ${{ env.FIRMWARE_PATH }}/*
         body: |
           **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
           ### 📒 固件信息
