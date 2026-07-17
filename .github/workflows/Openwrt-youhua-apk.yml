@@ -162,20 +162,29 @@ jobs:
       id: organize
       if: steps.compile.outputs.status == 'success'
       run: |
-        cd $OPENWRT_PATH/bin/targets/*/*
-        cat sha256sums
+        cd $OPENWRT_PATH/bin/targets/x86/64
+    
+        echo "==== target files ===="
+        ls -lah
+    
+        [ -f sha256sums ] && cat sha256sums || echo "No sha256sums"
+    
         cp $OPENWRT_PATH/.config build.config
-        
-        # 将 mv 改为 cp，防止冲掉前一步可能的 bin 目录打包
+    
         mkdir -p packages
-        cp -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages/ || true
-        tar -zcf Packages.tar.gz packages
+    
+        cp -f $OPENWRT_PATH/bin/packages/*/*/*.* packages/ || true
+    
+        tar -zcf Packages.tar.gz packages || true
+    
         rm -rf packages feeds.buildinfo version.buildinfo
-        
-        echo "KERNEL=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')" >> $GITHUB_ENV
-        # 🌟 改用 steps 输出，绝对不会在下一步丢失路径
+    
+        if ls *.manifest >/dev/null 2>&1; then
+            echo "KERNEL=$(grep ^kernel *.manifest | cut -d- -f2 | tr -d ' ')" >> $GITHUB_ENV
+        fi
+    
         echo "firmware_path=$PWD" >> $GITHUB_OUTPUT
-
+        
     - name: Upload Firmware To Artifact
       if: steps.compile.outputs.status == 'success' && !cancelled()
       uses: actions/upload-artifact@v4
