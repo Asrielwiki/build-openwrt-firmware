@@ -117,34 +117,14 @@ jobs:
       id: compile
       run: |
         cd $OPENWRT_PATH
-        mkdir -p files/etc/uci-defaults
+        # 1. tools
+        make tools/compile -j$(nproc)
 
-        # 1. ⚡【核心修复】优先编译 host 宿主机工具链（彻底解决 staging_dir/host/bin/m4 failed）
-        echo "==== Step 1: Build host tools ===="
-        make tools/compile -j$(nproc) || make tools/compile -j1 V=s
-        make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
+        # 2. toolchain
+        make toolchain/compile -j$(nproc)
 
-        # 2. 🛡️ 让内核单独、单线程稳固初始化（彻底解决 pppox.ko missing 报错）
-        echo "==== Step 2: Secure Kernel Build ===="
-        make target/linux/compile -j1 V=s
-
-        # 3. 🚀 多线程全速编译所有上层软件包（此时地基全稳，绝无后顾之忧）
-        echo "==== Step 3: Compiling packages ===="
-        make package/compile -j$(nproc) || make package/compile -j1 V=s
-
-        # 4. 📂 强行生成打包必须的 packages.adb 索引，并拷贝到打包脚本犯蠢找不到的那个路径
-        echo "==== Step 4: Generating APK Index ===="
-        make package/index V=s
-        mkdir -p staging_dir/packages/x86/
-        cp -f bin/packages/x86_64/base/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
-        cp -f bin/targets/x86/64/packages/packages.adb staging_dir/packages/x86/packages.adb 2>/dev/null || true
-
-        # 5. 📦 最后执行完美的固件打包封装
-        echo "==== Step 5: Building target images ===="
-        make target/compile -j$(nproc) || make target/compile -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+        # 3. 正常固件流程
+        make -j$(nproc) V=s
 
     - name: Check Space Usage
       if: (!cancelled())
