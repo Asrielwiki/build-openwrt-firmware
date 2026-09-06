@@ -79,13 +79,16 @@ jobs:
           chmod +x $DIY_P1_SH
           cd $OPENWRT_PATH
           $GITHUB_WORKSPACE/$DIY_P1_SH
+          sed -i "/helloworld/d" "feeds.conf.default"
+          echo "src-git helloworld https://github.com/fw876/helloworld.git" >> "feeds.conf.default"
 
     - name: Install Feeds
       run: |
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
         ./scripts/feeds install -f -a
-        #./scripts/feeds install -f libxcrypt
+        ./scripts/feeds update helloworld
+        ./scripts/feeds install -a -f -p helloworld
 
     - name: Generate Variables
       run: |
