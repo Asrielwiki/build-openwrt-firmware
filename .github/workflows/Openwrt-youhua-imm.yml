@@ -5,7 +5,7 @@ on:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-25.12
+  REPO_BRANCH: v25.12.1
   CONFIG_FILE: immo-seed.config
   DIY_P1_SH: diy-part1.sh
   CLASH_KERNEL: amd64
