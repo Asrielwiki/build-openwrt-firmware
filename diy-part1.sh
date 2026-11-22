@@ -25,6 +25,9 @@ sed -i 's/192.168.1.1/10.0.0.2/g' package/base-files/files/bin/config_generate
 #sed -i '/CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305/d' .config
 #sed -i '/CONFIG_PACKAGE_kmod-crypto-lib-poly1305/d' .config
 
+#添加luci-app-eqosplus插件
+git clone https://github.com/sirpdboy/luci-app-eqosplus package/luci-app-eqosplus
+
 # 2. 显式禁用，防止被其他包作为依赖强行拉起来
 #echo "# CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305 is not set" >> .config
 #echo "# CONFIG_PACKAGE_kmod-crypto-lib-poly1305 is not set" >> .config
